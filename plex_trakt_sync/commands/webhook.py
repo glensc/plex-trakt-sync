@@ -7,10 +7,11 @@ import click
 
 from plex_trakt_sync.factory import factory
 from plex_trakt_sync.logging import logger
-from plex_trakt_sync.media import MediaFactory
+from plex_trakt_sync.media import MediaFactory, Media
 from plex_trakt_sync.plex_api import PlexApi
 
 TAUTULLI_WEBHOOK_URL = "https://github.com/Taxel/PlexTraktSync#tautulli-webhook"
+CONFIG = factory.config()
 
 
 class WebhookHandler:
@@ -32,6 +33,15 @@ class WebhookHandler:
     def sync(self, rating_key: int):
         media = self.find_media(rating_key)
         logger.debug(f"Found: {media}")
+        self.sync_watched(media)
+
+    def sync_watched(self, m: Media):
+        if not CONFIG['sync']['watched_status']:
+            return
+
+        logger.debug(f"watched_on_plex: {m.watched_on_plex}")
+        if m.watched_on_plex:
+            logger.debug(f"plex.seen_date: {m.plex.seen_date}")
 
     def find_media(self, rating_key: int):
         plex = self.plex.fetch_item(rating_key)
