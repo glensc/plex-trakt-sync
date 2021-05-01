@@ -18,7 +18,7 @@ def initialize():
     console_handler = factory.console_logger()
     console_handler.terminator = ""
     console_handler.setFormatter(logging.Formatter("%(message)s"))
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.DEBUG)
 
     # file handler can log down to debug messages
     mode = "a" if CONFIG["logging"]["append"] else "w"
@@ -44,4 +44,5 @@ def initialize():
 
 
 initialize()
-logger = logging.getLogger("PlexTraktSync")
+logger = logging.getLogger('PlexTraktSync')
+logger.setLevel(logging.DEBUG)
