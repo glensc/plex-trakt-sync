@@ -2,6 +2,11 @@ name: 🐞 Bug Report
 description: Create a bug report to help us improve.
 
 body:
+  - type: markdown
+    attributes:
+      value: >
+        **THIS IS NOT THE PLACE TO ASK FOR SUPPORT!**
+        Please use [Discord](https://discord.gg/GtAnnZAkuw) for support issues.
   - type: textarea
     id: description
     attributes:
