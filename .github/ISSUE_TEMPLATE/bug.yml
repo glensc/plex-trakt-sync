@@ -26,12 +26,12 @@ body:
   - type: textarea
     id: traceback
     attributes:
+      render: text
       label: Error trace
       description: >
         A complete traceback of the error.
 
         This will be automatically formatted into code, so no need for backticks.
-      render: text
 
   - type: textarea
     id: expected
@@ -52,6 +52,18 @@ body:
     attributes:
       label: Workarounds
       description: Is there an existing workaround for this issue?
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      description: How did you install PlexTraktSync
+      options:
+        - pipx (Recommended)
+        - pip
+        - docker-compose
+        - git clone
+        - zip download
 
   - type: input
     id: version
