@@ -18,30 +18,30 @@ body:
   - type: textarea
     id: description
     attributes:
-      label: Describe the Bug
-      description: A clear and concise description of the bug.
+      label: The problem
+      description: A description of what the bug is, including a complete traceback (if applicable)
     validations:
       required: true
 
   - type: textarea
     id: expected
     attributes:
-      label: Expected Behavior
-      description: A clear and concise description of what you expected to happen.
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: Additional Context
-      description: Add any other context about the bug here.
-
-  - type: input
-    id: os
-    attributes:
-      label: Operating System and Version
-      placeholder: eg. Windows 10, macOS 10.15, Ubuntu 20.04, etc.
+      label: Expected behavior
+      description: A description of what you expected to happen
     validations:
       required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce the behavior
+      description: With a complete code example, if possible
+
+  - type: textarea
+    id: workarounds
+    attributes:
+      label: Workarounds
+      description: Is there an existing workaround for this issue?
 
   - type: input
     id: version
@@ -57,6 +57,14 @@ body:
     attributes:
       label: Python Version
       placeholder: eg. 3.7.10
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System and Version
+      placeholder: eg. Windows 10, macOS 10.15, Ubuntu 20.04, etc.
     validations:
       required: true
 
