@@ -1,12 +1,14 @@
 from functools import wraps
 
-import requests_cache
+from plex_trakt_sync.factory import factory
+
+session = factory.session()
 
 
 def nocache(method):
     @wraps(method)
-    def inner(self, *args, **kwargs):
-        with requests_cache.disabled():
-            return method(self, *args, **kwargs)
+    def inner(*args, **kwargs):
+        with session.cache_disabled():
+            return method(*args, **kwargs)
 
     return inner

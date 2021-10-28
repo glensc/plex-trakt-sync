@@ -1,37 +1,18 @@
 from functools import wraps
-from time import sleep, time
-from trakt.errors import RateLimitException
-from plex_trakt_sync.logging import logger
+from time import sleep
 
-last_time = None
+from requests import RequestException
+from trakt.errors import RateLimitException, TraktInternalException
+
+from plex_trakt_sync.logging import logger
 
 
 # https://trakt.docs.apiary.io/#introduction/rate-limiting
-def rate_limit(retries=5, delay=None):
+def rate_limit(retries=5):
     """
-
     :param retries: number of retries
-    :param delay: delay in sec between trakt requests to respect rate limit
     :return:
     """
-
-    def respect_trakt_rate():
-        if delay is None:
-            return
-
-        global last_time
-        if last_time is None:
-            last_time = time()
-            return
-
-        diff_time = time() - last_time
-        if diff_time < delay:
-            wait = delay - diff_time
-            logger.warning(
-                f'Sleeping for {wait:.3f} seconds'
-            )
-            sleep(wait)
-        last_time = time()
 
     def decorator(fn):
         @wraps(fn)
@@ -39,16 +20,20 @@ def rate_limit(retries=5, delay=None):
             retry = 0
             while True:
                 try:
-                    respect_trakt_rate()
                     return fn(*args, **kwargs)
-                except RateLimitException as e:
+                except (RateLimitException, RequestException, TraktInternalException) as e:
                     if retry == retries:
-                        raise e
+                        logger.error(f"Error: {e}")
+                        logger.error("API didn't respond properly, script will abort now. Please try again later.")
+                        exit(1)
 
-                    seconds = int(e.response.headers.get("Retry-After", 1))
+                    if isinstance(e, RateLimitException):
+                        seconds = int(e.response.headers.get("Retry-After", 1))
+                    else:
+                        seconds = 1 + retry
                     retry += 1
                     logger.warning(
-                        f'RateLimitException for {fn}, retrying after {seconds} seconds (try: {retry}/{retries})'
+                        f"{e} for {fn.__module__}.{fn.__name__}(), retrying after {seconds} seconds (try: {retry}/{retries})"
                     )
                     sleep(seconds)
 

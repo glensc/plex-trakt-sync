@@ -1,8 +1,11 @@
 import click
-from plexapi.server import PlexServer
 
-from plex_trakt_sync.listener import WebSocketListener, PLAYING
-from plex_trakt_sync.config import CONFIG
+from plex_trakt_sync.logging import logging
+from plex_trakt_sync.config import Config
+from plex_trakt_sync.events import PlaySessionStateNotification, ActivityNotification, Error
+from plex_trakt_sync.factory import factory
+from plex_trakt_sync.listener import WebSocketListener
+from plex_trakt_sync.media import MediaFactory, Media
 from plex_trakt_sync.plex_api import PlexApi
 from plex_trakt_sync.trakt_api import TraktApi
 
@@ -17,24 +20,84 @@ class ScrobblerCollection(dict):
         return value
 
 
+class SessionCollection(dict):
+    def __init__(self, plex: PlexApi):
+        super(dict, self).__init__()
+        self.plex = plex
+
+    def __missing__(self, key: str):
+        self.update_sessions()
+        if key not in self:
+            # Session probably ended
+            return None
+
+        return self[key]
+
+    def update_sessions(self):
+        sessions = self.plex.get_sessions()
+        self.clear()
+        for session in sessions:
+            self[str(session.sessionKey)] = session.usernames[0]
+
+
 class WatchStateUpdater:
-    def __init__(self, plex: PlexApi, trakt: TraktApi):
+    def __init__(self, plex: PlexApi, trakt: TraktApi, mf: MediaFactory, config: Config):
         self.plex = plex
         self.trakt = trakt
+        self.mf = mf
+        self.logger = logging.getLogger("PlexTraktSync.WatchStateUpdater")
         self.scrobblers = ScrobblerCollection(trakt)
+        if config["watch"]["username_filter"]:
+            self.username_filter = config["PLEX_USERNAME"]
+        else:
+            self.username_filter = None
+        self.sessions = SessionCollection(plex)
 
-    def __call__(self, message):
-        for pm, tm, item in self.filter_media(message):
-            movie = pm.item
-            percent = pm.watch_progress(item["viewOffset"])
+    def find_by_key(self, key: str, reload=False):
+        pm = self.plex.fetch_item(key)
+        if reload:
+            pm = self.plex.reload_item(pm)
+        if not pm:
+            return None
 
-            print("%r: %.6F%% Watched: %s, LastViewed: %s" % (
-                movie, percent, movie.isWatched, movie.lastViewedAt
-            ))
+        m = self.mf.resolve_any(pm)
+        return m
 
-            self.scrobble(tm, percent, item["state"])
+    def on_error(self, error: Error):
+        self.logger.error(error.msg)
+        self.scrobblers.clear()
+        self.sessions.clear()
 
-    def scrobble(self, tm, percent, state):
+    def on_activity(self, activity: ActivityNotification):
+        m = self.find_by_key(activity.key, reload=True)
+        if not m:
+            return
+        self.logger.info(f"Activity: {m}: Watched: Plex: {m.watched_on_plex}, Trakt: {m.watched_on_trakt}")
+
+    def on_play(self, event: PlaySessionStateNotification):
+        if not self.can_scrobble(event):
+            return
+
+        m = self.find_by_key(event.key)
+        if not m:
+            return
+
+        movie = m.plex.item
+        percent = m.plex.watch_progress(event.view_offset)
+
+        self.logger.info(f"{movie}: {percent:.6F}% Watched: {movie.isWatched}, LastViewed: {movie.lastViewedAt}")
+        self.scrobble(m, percent, event)
+
+    def can_scrobble(self, event: PlaySessionStateNotification):
+        if not self.username_filter:
+            return True
+
+        return self.sessions[event.session_key] == self.username_filter
+
+    def scrobble(self, m: Media, percent: float, event: PlaySessionStateNotification):
+        tm = m.trakt
+        state = event.state
+
         if state == "playing":
             return self.scrobblers[tm].update(percent)
 
@@ -44,40 +107,7 @@ class WatchStateUpdater:
         if state == "stopped":
             self.scrobblers[tm].stop()
             del self.scrobblers[tm]
-
-    def filter_media(self, message):
-        for item in self.filter_playing(message):
-            pm = self.plex.fetch_item(int(item["ratingKey"]))
-            print(f"Found {pm}")
-            if not pm:
-                continue
-
-            tm = self.trakt.find_movie(pm)
-            if not tm:
-                continue
-
-            yield pm, tm, item
-
-    def filter_playing(self, message):
-        """
-            {'sessionKey': '23', 'guid': '', 'ratingKey': '9725', 'url': '', 'key': '/library/metadata/9725', 'viewOffset': 0, 'playQueueItemID': 17679, 'state': 'playing'}
-            {'sessionKey': '23', 'guid': '', 'ratingKey': '9725', 'url': '', 'key': '/library/metadata/9725', 'viewOffset': 10000, 'playQueueItemID': 17679, 'state': 'playing', 'transcodeSession': '18nyclub53k1ey37jjbg8ok3'}
-            {'sessionKey': '23', 'guid': '', 'ratingKey': '9725', 'url': '', 'key': '/library/metadata/9725', 'viewOffset': 20000, 'playQueueItemID': 17679, 'state': 'playing', 'transcodeSession': '18nyclub53k1ey37jjbg8ok3'}
-            {'sessionKey': '23', 'guid': '', 'ratingKey': '9725', 'url': '', 'key': '/library/metadata/9725', 'viewOffset': 30000, 'playQueueItemID': 17679, 'state': 'playing', 'transcodeSession': '18nyclub53k1ey37jjbg8ok3'}
-            {'sessionKey': '23', 'guid': '', 'ratingKey': '9725', 'url': '', 'key': '/library/metadata/9725', 'viewOffset': 30000, 'playQueueItemID': 17679, 'state': 'paused', 'transcodeSession': '18nyclub53k1ey37jjbg8ok3'}
-            {'sessionKey': '23', 'guid': '', 'ratingKey': '9725', 'url': '', 'key': '/library/metadata/9725', 'viewOffset': 30000, 'playQueueItemID': 17679, 'state': 'paused', 'transcodeSession': '18nyclub53k1ey37jjbg8ok3'}
-        """
-
-        if message["size"] != 1:
-            raise ValueError("Unexpected size: %r" % message)
-
-        for item in message["PlaySessionStateNotification"]:
-            state = item["state"]
-            print(f"State: {state}")
-            if state not in ["playing", "stopped", "paused"]:
-                continue
-
-            yield item
+            del self.sessions[event.session_key]
 
 
 @click.command()
@@ -86,13 +116,17 @@ def watch():
     Listen to events from Plex
     """
 
-    url = CONFIG["PLEX_BASEURL"]
-    token = CONFIG["PLEX_TOKEN"]
-    server = PlexServer(url, token)
-    trakt = TraktApi()
-    plex = PlexApi(server)
-
+    server = factory.plex_server()
+    trakt = factory.trakt_api()
+    plex = factory.plex_api()
+    mf = factory.media_factory()
+    config = factory.config()
     ws = WebSocketListener(server)
-    ws.on(PLAYING, WatchStateUpdater(plex, trakt))
+    updater = WatchStateUpdater(plex, trakt, mf, config)
+
+    ws.on(PlaySessionStateNotification, updater.on_play, state=["playing", "stopped", "paused"])
+    ws.on(ActivityNotification, updater.on_activity, type="library.refresh.items", event=["ended"], progress=100)
+    ws.on(Error, updater.on_error)
+
     print("Listening for events!")
     ws.listen()

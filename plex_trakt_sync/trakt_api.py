@@ -1,25 +1,25 @@
-from json import JSONDecodeError
 from typing import Union
+
 import trakt
+import trakt.movies
+import trakt.sync
+import trakt.users
+from trakt.core import load_config
+from trakt.errors import ForbiddenException, OAuthException
+from trakt.movies import Movie
+from trakt.sync import Scrobbler
+from trakt.tv import TVEpisode, TVSeason, TVShow
 
 from plex_trakt_sync import pytrakt_extensions
-from plex_trakt_sync.path import pytrakt_file
-from plex_trakt_sync.plex_api import PlexLibraryItem
-
-trakt.core.CONFIG_PATH = pytrakt_file
-import trakt.users
-import trakt.sync
-import trakt.movies
-from trakt.movies import Movie
-from trakt.tv import TVShow, TVSeason, TVEpisode
-from trakt.errors import OAuthException, ForbiddenException
-from trakt.sync import Scrobbler
-
+from plex_trakt_sync.decorators.deprecated import deprecated
+from plex_trakt_sync.decorators.memoize import memoize
+from plex_trakt_sync.decorators.nocache import nocache
+from plex_trakt_sync.decorators.rate_limit import rate_limit
+from plex_trakt_sync.decorators.time_limit import time_limit
+from plex_trakt_sync.factory import factory
 from plex_trakt_sync.logging import logger
-from plex_trakt_sync.decorators import memoize, nocache, rate_limit
-from plex_trakt_sync.config import CONFIG
-
-TRAKT_POST_DELAY = 1.1
+from plex_trakt_sync.path import pytrakt_file
+from plex_trakt_sync.plex_api import PlexGuid, PlexLibraryItem
 
 
 class ScrobblerProxy:
@@ -31,17 +31,20 @@ class ScrobblerProxy:
         self.scrobbler = scrobbler
 
     @nocache
-    @rate_limit(delay=TRAKT_POST_DELAY)
+    @rate_limit()
+    @time_limit()
     def update(self, progress: float):
         self.scrobbler.update(progress)
 
     @nocache
-    @rate_limit(delay=TRAKT_POST_DELAY)
+    @rate_limit()
+    @time_limit()
     def pause(self):
         self.scrobbler.pause()
 
     @nocache
-    @rate_limit(delay=TRAKT_POST_DELAY)
+    @rate_limit()
+    @time_limit()
     def stop(self):
         self.scrobbler.stop()
 
@@ -50,6 +53,18 @@ class TraktApi:
     """
     Trakt API class abstracting common data access and dealing with requests cache.
     """
+
+    def __init__(self, batch_size=None):
+        self.batch = TraktBatch(self, batch_size=batch_size)
+        trakt.core.CONFIG_PATH = pytrakt_file
+        trakt.core.session = factory.session()
+        load_config()
+
+    @staticmethod
+    def device_auth(client_id: str, client_secret: str):
+        trakt.core.AUTH_METHOD = trakt.core.DEVICE_AUTH
+
+        return trakt.init(client_id=client_id, client_secret=client_secret, store=True)
 
     @property
     @memoize
@@ -67,8 +82,6 @@ class TraktApi:
     @nocache
     @rate_limit()
     def liked_lists(self):
-        if not CONFIG['sync']['liked_lists']:
-            return []
         return pytrakt_extensions.get_liked_lists()
 
     @property
@@ -95,7 +108,8 @@ class TraktApi:
         return self.me.show_collection
 
     @nocache
-    @rate_limit(delay=TRAKT_POST_DELAY)
+    @rate_limit()
+    @time_limit()
     def remove_from_library(self, media: Union[Movie, TVShow, TVSeason, TVEpisode]):
         if not isinstance(media, (Movie, TVShow, TVSeason, TVEpisode)):
             raise ValueError("Must be valid media type")
@@ -120,12 +134,7 @@ class TraktApi:
     @nocache
     @rate_limit()
     def watchlist_movies(self):
-        if not CONFIG['sync']['watchlist']:
-            return []
-
-        return list(
-            map(lambda m: m.trakt, self.me.watchlist_movies)
-        )
+        return self.me.watchlist_movies
 
     @property
     @memoize
@@ -150,36 +159,43 @@ class TraktApi:
         return None
 
     @nocache
-    @rate_limit(delay=TRAKT_POST_DELAY)
+    @rate_limit()
+    @time_limit()
     def rate(self, m, rating):
         m.rate(rating)
 
-    def scrobbler(self, media: Union[Movie, TVEpisode]) -> ScrobblerProxy:
+    @staticmethod
+    def scrobbler(media: Union[Movie, TVEpisode]) -> ScrobblerProxy:
         scrobbler = media.scrobble(0, None, None)
         return ScrobblerProxy(scrobbler)
 
     @nocache
-    @rate_limit(delay=TRAKT_POST_DELAY)
+    @rate_limit()
+    @time_limit()
     def mark_watched(self, m, time):
         m.mark_as_seen(time)
-
-    @nocache
-    @rate_limit(delay=TRAKT_POST_DELAY)
-    def add_to_collection(self, m, pm: PlexLibraryItem):
-        # support is missing, compose custom json ourselves
-        # https://github.com/moogar0880/PyTrakt/issues/143
         if m.media_type == "movies":
-            json = {
-                m.media_type: [dict(
-                    title=m.title,
-                    year=m.year,
-                    **m.ids,
-                    **pm.to_json(),
-                )],
-            }
-            return trakt.sync.add_to_collection(json)
+            self.watched_movies.add(m.trakt)
+        if m.media_type == "episodes":
+            self.watched_shows.add(m.show.trakt, m.season, m.number)
+
+    def add_to_collection(self, m, pm: PlexLibraryItem):
+        if m.media_type == "movies":
+            item = dict(
+                title=m.title,
+                year=m.year,
+                **m.ids,
+                **pm.to_json(),
+            )
+        elif m.media_type == "episodes":
+            item = dict(
+                **m.ids,
+                **pm.to_json()
+            )
         else:
-            return m.add_to_library()
+            raise ValueError(f"Unsupported media type: {m.media_type}")
+
+        self.batch.add_to_collection(m.media_type, item)
 
     @memoize
     @nocache
@@ -197,18 +213,138 @@ class TraktApi:
         return pytrakt_extensions.lookup_table(tm)
 
     @memoize
+    def find_by_guid(self, guid: PlexGuid):
+        if guid.type == "episode" and guid.is_episode:
+            ts = self.search_by_id(guid.show_id, id_type=guid.provider, media_type="show")
+            return self.find_episode_guid(ts, guid)
+
+        return self.search_by_id(guid.id, id_type=guid.provider, media_type=guid.type)
+
+    @memoize
+    @deprecated("Use find_by_guid")
+    def find_by_media(self, pm: PlexLibraryItem):
+        return self.find_by_guid(pm.guid)
+
     @rate_limit()
-    def find_movie(self, media: PlexLibraryItem):
-        try:
-            search = trakt.sync.search_by_id(media.id, id_type=media.provider, media_type=media.media_type)
-        except JSONDecodeError as e:
-            raise ValueError(f"Unable parse search result for {media.provider}/{media.id}: {e.doc!r}") from e
-        except ValueError as e:
-            # Search_type must be one of ('trakt', ..., 'imdb', 'tmdb', 'tvdb')
-            raise ValueError(f"Invalid id_type: {media.provider}") from e
+    def search_by_id(self, media_id: str, id_type: str, media_type: str):
+        if id_type == "tvdb" and media_type == "movie":
+            # Skip invalid search.
+            # The Trakt API states that tvdb is only for shows and episodes:
+            # https://trakt.docs.apiary.io/#reference/search/id-lookup/get-id-lookup-results
+            logger.debug("tvdb does not support movie provider")
+            return None
+
+        search = trakt.sync.search_by_id(media_id, id_type=id_type, media_type=media_type)
         # look for the first wanted type in the results
+        # NOTE: this is not needed, kept around for caution
         for m in search:
-            if m.media_type == media.type:
-                return m
+            if m.media_type != f"{media_type}s":
+                logger.error(
+                    f"Internal error, wrong media type: {m.media_type}. Please report this to PlexTraktSync developers"
+                )
+                continue
+            return m
 
         return None
+
+    def find_episode_guid(self, tm: TVShow, guid: PlexGuid, lookup=None):
+        """
+        Find Trakt Episode from Guid of Plex Episode
+        """
+        lookup = lookup if lookup else self.lookup(tm)
+        try:
+            return lookup[guid.pm.season_number][guid.pm.episode_number].instance
+        except KeyError:
+            # Retry using search for specific Plex Episode
+            logger.warning("Retry using search for specific Plex Episode")
+            if not guid.is_episode:
+                return self.find_by_guid(guid)
+            return None
+
+    @deprecated("Use find_episode_guid")
+    def find_episode(self, tm: TVShow, pe: PlexLibraryItem, lookup=None):
+        return self.find_episode_guid(tm, pe.guid, lookup)
+
+    def flush(self):
+        """
+        Submit all pending data
+        """
+        self.batch.submit_collection()
+
+
+class TraktBatch:
+    def __init__(self, trakt: TraktApi, batch_size=None):
+        self.trakt = trakt
+        self.batch_size = batch_size
+        self.collection = {}
+
+    @nocache
+    @rate_limit()
+    @time_limit()
+    def submit_collection(self):
+        if self.queue_size() == 0:
+            return
+
+        try:
+            result = self.trakt_sync_collection(self.collection)
+            result = self.remove_empty_values(result.copy())
+            if result:
+                logger.info(f"Updated Trakt collection: {result}")
+        finally:
+            self.collection.clear()
+
+    def queue_size(self):
+        size = 0
+        for media_type in self.collection:
+            size += len(self.collection[media_type])
+
+        return size
+
+    def flush(self):
+        """
+        Flush the queue if it's bigger than batch_size
+        """
+        if not self.batch_size:
+            return
+
+        if self.queue_size() >= self.batch_size:
+            self.submit_collection()
+
+    def add_to_collection(self, media_type: str, item):
+        """
+        Add item of media_type to collection
+        """
+        if media_type not in self.collection:
+            self.collection[media_type] = []
+
+        self.collection[media_type].append(item)
+        self.flush()
+
+    @staticmethod
+    def trakt_sync_collection(media_object):
+        return trakt.sync.add_to_collection(media_object)
+
+    @staticmethod
+    def remove_empty_values(result):
+        """
+        Update result to remove empty changes.
+        This makes diagnostic printing cleaner if we don't print "changed: 0"
+        """
+        for change_type in ["added", "existing", "updated"]:
+            for media_type, value in result[change_type].copy().items():
+                if value == 0:
+                    del result[change_type][media_type]
+            if len(result[change_type]) == 0:
+                del result[change_type]
+
+        for media_type, items in result["not_found"].copy().items():
+            if len(items) == 0:
+                del result["not_found"][media_type]
+
+        if len(result["not_found"]) == 0:
+            del result["not_found"]
+
+        if len(result) == 0:
+            return None
+
+        return result
