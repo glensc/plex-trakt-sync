@@ -64,6 +64,8 @@ body:
         - docker-compose
         - git clone
         - zip download
+    validations:
+      required: true
 
   - type: input
     id: version
