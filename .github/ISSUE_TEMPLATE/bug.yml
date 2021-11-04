@@ -51,7 +51,8 @@ body:
     id: inspect
     attributes:
       label: Inpsect of problematic items
-      description: Post here `plextraktsync inspect ID` if needed to understand the problem
+      description: >
+        Post here `plextraktsync inspect ID` if needed to understand the problem
 
   - type: textarea
     id: workarounds
