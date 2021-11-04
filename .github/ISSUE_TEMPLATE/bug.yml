@@ -7,7 +7,7 @@ body:
       value: |
         Before you continue reporting the bug, be sure that you use the latest released version:
 
-        - https://github.com/Taxel/PlexTraktSync/releases
+        - https://github.com/Taxel/PlexTraktSync/tags
 
         Using branch, e.g "main" is not supported, you must use released version when reporting a bug.
 
@@ -46,6 +46,12 @@ body:
     attributes:
       label: Steps to reproduce the behavior
       description: With a complete code example, if possible
+
+- type: textarea
+    id: inspect
+    attributes:
+      label: Inpsect of problematic items
+      description: Post here `plextraktsync inspect ID` if needed to understand the problem
 
   - type: textarea
     id: workarounds
