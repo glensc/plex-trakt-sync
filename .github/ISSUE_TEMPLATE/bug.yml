@@ -50,6 +50,7 @@ body:
   - type: textarea
     id: inspect
     attributes:
+      render: text
       label: Inpsect of problematic items
       description: >
         Post here `plextraktsync inspect ID` if needed to understand the problem
