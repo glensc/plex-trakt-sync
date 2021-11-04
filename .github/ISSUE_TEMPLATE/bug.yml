@@ -47,7 +47,7 @@ body:
       label: Steps to reproduce the behavior
       description: With a complete code example, if possible
 
-- type: textarea
+  - type: textarea
     id: inspect
     attributes:
       label: Inpsect of problematic items
