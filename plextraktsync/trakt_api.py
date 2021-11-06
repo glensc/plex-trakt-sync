@@ -294,8 +294,7 @@ class TraktApi:
         try:
             return lookup[guid.pm.season_number][guid.pm.episode_number].instance
         except KeyError:
-            # Retry using search for specific Plex Episode
-            logger.warning("Retry using search for specific Plex Episode")
+            #logger.warning("Retry using search for specific Plex Episode")
             if not guid.is_episode:
                 return self.find_by_guid(guid)
             return None

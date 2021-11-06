@@ -180,7 +180,7 @@ class MediaFactory:
 
     def resolve_guid(self, guid: PlexGuid, show: Media = None):
         if guid.provider in ["local", "none", "agents.none"]:
-            logger.warning(f"{guid.pm.item}: Skipping {guid} because provider {guid.provider} has no external Id")
+#            logger.warning(f"{guid.pm.item}: Skipping {guid} because provider {guid.provider} has no external Id")
 
             return None
 
@@ -196,11 +196,11 @@ class MediaFactory:
             else:
                 tm = self.trakt.find_by_guid(guid)
         except (TraktException, RequestException) as e:
-            logger.warning(f"{guid.pm.item}: Skipping guid {guid} Trakt errors: {e}")
+            #logger.warning(f"{guid.pm.item}: Skipping guid {guid} Trakt errors: {e}")
             return None
 
         if tm is None:
-            logger.warning(f"{guid.pm.item}: Skipping guid {guid} not found on Trakt")
+            #logger.warning(f"{guid.pm.item}: Skipping guid {guid} not found on Trakt")
             return None
 
         return Media(guid.pm, tm, plex_api=self.plex, trakt_api=self.trakt)
