@@ -275,6 +275,19 @@ and scrobble plays.
 
 [plex-scrobbler]: https://blog.trakt.tv/plex-scrobbler-52db9b016ead
 
+Trakt marks any scrobble progress above 80% as watched and counts as a play. This could result in unwanted plays if media playback is paused and resumed after that point.
+
+By default, this app uses 85% and 90% for movies and TV shows respectively. To set a custom threshold, change the following in your `config.json`:
+
+```json
+{
+  "watch": {
+    "scrobble_episode_threshold": 90,
+    "scrobble_movie_threshold": 85
+    }
+}
+```
+
 To restrict scrobbling to your user **only** (recommended), set the following in your `config.json`:
 
 ```json
