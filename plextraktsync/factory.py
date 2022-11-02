@@ -128,7 +128,7 @@ class Factory:
     @cached_property
     def logger(self):
         logger = self.logging.getLogger("PlexTraktSync")
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(self.logging.DEBUG)
         config = self.config()
 
         from plextraktsync.logger.filter import LoggerFilter
