@@ -2,7 +2,7 @@ from urllib.parse import urlencode
 
 from plextraktsync.util.openurl import openurl
 
-URL_TEMPLATE = 'https://github.com/Taxel/PlexTraktSync/issues/new?template=bug.yml&{}'
+URL_TEMPLATE = 'https://github.com/glensc/plex-trakt-sync/issues/new?template=bug.yml&{}'
 
 
 def bug_url():
