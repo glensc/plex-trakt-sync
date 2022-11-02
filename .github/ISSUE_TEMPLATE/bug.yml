@@ -98,7 +98,7 @@ body:
         Contents of your config file.
 
         See "Config File" for location of it from `plextraktsync info`.
-        This will be automatically formatted into code, so no need for backticks.
+        This will be automatically formatted as yaml text.
 
   - type: input
     id: version
