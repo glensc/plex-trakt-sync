@@ -92,7 +92,7 @@ body:
   - type: textarea
     id: config
     attributes:
-      render: yaml
+      render: text
       label: Config file
       description: >
         Contents of your config file.
