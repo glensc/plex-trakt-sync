@@ -93,7 +93,7 @@ body:
     id: config
     attributes:
       render: yaml
-      label: Config file
+      label: Config file contents
       description: >
         Contents of your config file.
 
