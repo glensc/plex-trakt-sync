@@ -21,6 +21,8 @@ body:
           required: true
         - label: I have checked if identical issue already exists
           required: true
+        - label: I have tried downgrading and will put version to workarounds form where problem did not occour
+          required: true
 
   - type: textarea
     id: description
